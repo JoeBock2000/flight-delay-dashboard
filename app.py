@@ -24,10 +24,16 @@ h1, h2, h3 {color: #0F1E3D;}
 DATA_PATH = "flight_delay_clean.parquet"
 MODEL_PATH = "xgboost_model.json"
 MODEL_FEATURES = ["TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","AIRLINE_CODE","MONTH","DEP_HOUR","DAY_OF_WEEK","ORIGIN","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","DAILY_TRAFFIC","SNOW","SNWD"]
+# Only the columns the dashboard actually uses. Loading the full 70-column parquet
+# and taking the OPERATED copy peaks at ~2.7 GB and gets OOM-killed on Streamlit Cloud.
+NEEDED_COLUMNS = ["OUTCOME","DEP_DELAY","DEP_HOUR","ORIGIN","AIRLINE_CODE","DAILY_TRAFFIC","CLUSTER","TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","MONTH","DAY_OF_WEEK","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","SNOW","SNWD"]
 
 @st.cache_data(show_spinner="Loading flight data...")
 def load_data():
-    return pd.read_parquet(DATA_PATH)
+    df = pd.read_parquet(DATA_PATH, columns=NEEDED_COLUMNS)
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = df[col].astype("category")
+    return df
 
 @st.cache_resource
 def load_model():
@@ -50,7 +56,7 @@ df = load_data()
 model = load_model()
 encoders = build_encoders(df)
 airport_ref = airport_reference(df)
-OPERATED = df[df["OUTCOME"].isin(["On-time","Delayed"])].copy()
+OPERATED = df[df["OUTCOME"].isin(["On-time","Delayed"])]
 BASELINE_DELAY = (OPERATED["OUTCOME"]=="Delayed").mean()*100
 
 st.sidebar.markdown("### Flight Delay")
