@@ -6,6 +6,7 @@ import xgboost as xgb
 import joblib
 import streamlit.components.v1 as components
 from sklearn.metrics import accuracy_score, roc_auc_score
+import html as html_lib
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -54,6 +55,169 @@ def build_encoders():
 @st.cache_data
 def airport_reference(df):
     return df.groupby("ORIGIN").agg(DAILY_TRAFFIC=("DAILY_TRAFFIC","mean"),WSF2=("WSF2","mean"),AWND=("AWND","mean"),TMAX=("TMAX","mean"),TMIN=("TMIN","mean"),PRCP=("PRCP","mean"),SNOW=("SNOW","mean"),SNWD=("SNWD","mean"),FOG=("FOG","mean"),HAZE_SMOKE=("HAZE_SMOKE","mean"),DISTANCE=("DISTANCE","mean"))
+
+# Dark "analysis panel" for CSV-upload results. Styling is taken verbatim from
+# analysis_panel.html; every value is computed from the real uploaded data.
+PANEL_STYLE = """<style>
+  html,body{margin:0;padding:0;background:#F4F7FB;}
+  *{box-sizing:border-box;}
+  .analysis{
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    max-width:820px;margin:14px auto;border-radius:16px;padding:22px 24px 26px;
+    color:#E8EEF7;
+    background:linear-gradient(145deg,#1c2230 0%,#141821 45%,#1a2030 100%);
+    border:1px solid #2b3346;
+    box-shadow:0 10px 30px rgba(10,15,25,.35), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .analysis h3{margin:0 0 4px;font-size:16px;font-weight:600;color:#F4F8FF;letter-spacing:.01em;}
+  .analysis .sub{margin:0 0 18px;font-size:12.5px;color:#9DB0CC;}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+  @media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr);}}
+  .metric{
+    background:linear-gradient(160deg,#232b3c,#1a2130);
+    border:1px solid #313a4f;border-radius:12px;padding:12px 14px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .metric .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8697b4;}
+  .metric .v{font-size:23px;font-weight:600;margin-top:4px;color:#EAF1FF;}
+  .metric .v small{font-size:13px;color:#9DB0CC;font-weight:400;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px;}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr;}}
+  .card{
+    background:linear-gradient(160deg,#20283700,#1a212f);
+    border:1px solid #2b3346;border-radius:12px;padding:14px 16px 16px;
+  }
+  .card h4{margin:0 0 12px;font-size:12.5px;font-weight:600;color:#C4D2E8;letter-spacing:.02em;}
+  .cm{display:grid;grid-template-columns:88px 1fr 1fr;grid-auto-rows:auto;gap:6px;font-size:12px;}
+  .cm .hd{color:#8697b4;display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;}
+  .cm .rl{color:#8697b4;display:flex;align-items:center;padding:4px 6px;}
+  .cell{border-radius:9px;padding:14px 8px;text-align:center;}
+  .cell .n{font-size:20px;font-weight:600;}
+  .cell .t{font-size:10.5px;opacity:.8;margin-top:2px;}
+  .tp{background:linear-gradient(160deg,#12463a,#0e3a30);color:#7FE3C0;border:1px solid #1c6b57;}
+  .tn{background:linear-gradient(160deg,#123a52,#0e2f42);color:#8BC7F0;border:1px solid #1c567a;}
+  .fp{background:linear-gradient(160deg,#4a2f12,#3a260e);color:#F0C08B;border:1px solid #7a531c;}
+  .fn{background:linear-gradient(160deg,#4a1f24,#3a171b);color:#F0959B;border:1px solid #7a2b33;}
+  .hist{display:flex;align-items:flex-end;gap:4px;height:120px;padding-top:6px;}
+  .bar{flex:1;background:linear-gradient(180deg,#4A90D9,#2b5f96);border-radius:4px 4px 0 0;min-height:2px;position:relative;}
+  .bar.hot{background:linear-gradient(180deg,#E0844A,#a85d2b);}
+  .axis{display:flex;justify-content:space-between;font-size:10px;color:#8697b4;margin-top:6px;}
+  .legend{font-size:11px;color:#9DB0CC;margin-top:8px;}
+  .legend b{color:#EAF1FF;font-weight:600;}
+  .tbl-wrap{max-height:260px;overflow:auto;border:1px solid #2b3346;border-radius:12px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  thead th{position:sticky;top:0;background:#1a2130;color:#8697b4;font-weight:600;
+    text-align:left;padding:9px 12px;border-bottom:1px solid #2b3346;font-size:11px;
+    text-transform:uppercase;letter-spacing:.04em;}
+  tbody td{padding:8px 12px;border-bottom:1px solid #232b3a;color:#D5E0F0;}
+  tbody tr:last-child td{border-bottom:none;}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+  .pill.hi{background:#4a1f24;color:#F0959B;}
+  .pill.mid{background:#4a2f12;color:#F0C08B;}
+  .pill.lo{background:#123a52;color:#8BC7F0;}
+  .ok{color:#7FE3C0;}
+  .miss{color:#F0959B;}
+</style>"""
+
+def render_analysis_panel(y_true, y_prob, preview_df):
+    yprob = np.asarray(y_prob, dtype=float)
+    n = int(len(yprob))
+    mean_pred = float(yprob.mean())*100 if n else 0.0
+    counts, _ = np.histogram(yprob, bins=np.linspace(0.0, 1.0, 11))
+    mx = int(counts.max()) if counts.size and counts.max() > 0 else 1
+    bars = "".join(
+        f'<div class="bar{" hot" if i>=5 else ""}" style="height:{c/mx*100:.1f}%" title="{int(c)} flights"></div>'
+        for i, c in enumerate(counts))
+
+    has_labels = y_true is not None
+    metric_mid = ""
+    conf_card = ""
+    if has_labels:
+        yt = np.asarray(y_true, dtype=float)
+        m = ~np.isnan(yt)
+        yt_l = yt[m].astype(int)
+        yp_l = yprob[m]
+        n_l = int(len(yt_l))
+        pred_l = (yp_l >= 0.5).astype(int)
+        TP = int(((pred_l == 1) & (yt_l == 1)).sum())
+        TN = int(((pred_l == 0) & (yt_l == 0)).sum())
+        FP = int(((pred_l == 1) & (yt_l == 0)).sum())
+        FN = int(((pred_l == 0) & (yt_l == 1)).sum())
+        acc = accuracy_score(yt_l, pred_l)*100 if n_l else 0.0
+        auc = roc_auc_score(yt_l, yp_l) if (n_l and len(np.unique(yt_l)) > 1) else None
+        auc_str = f"{auc:.3f}" if auc is not None else "n/a"
+        metric_mid = (
+            f'<div class="metric"><div class="k">ROC-AUC</div><div class="v">{auc_str}</div></div>'
+            f'<div class="metric"><div class="k">Accuracy @0.5</div><div class="v">{acc:.1f}<small>%</small></div></div>')
+        conf_card = (
+            '<div class="card"><h4>Confusion matrix</h4><div class="cm">'
+            '<div></div><div class="hd">Predicted on-time</div><div class="hd">Predicted delayed</div>'
+            '<div class="rl">Actual on-time</div>'
+            f'<div class="cell tn"><div class="n">{TN}</div><div class="t">true on-time</div></div>'
+            f'<div class="cell fp"><div class="n">{FP}</div><div class="t">false alarm</div></div>'
+            '<div class="rl">Actual delayed</div>'
+            f'<div class="cell fn"><div class="n">{FN}</div><div class="t">missed delay</div></div>'
+            f'<div class="cell tp"><div class="n">{TP}</div><div class="t">caught delay</div></div>'
+            '</div>'
+            f'<div class="legend">The model catches <b>{TP} of {TP+FN}</b> real delays.</div></div>')
+
+    metrics_html = (
+        f'<div class="metric"><div class="k">Flights scored</div><div class="v">{n}</div></div>'
+        f'{metric_mid}'
+        f'<div class="metric"><div class="k">Mean predicted</div><div class="v">{mean_pred:.1f}<small>%</small></div></div>')
+
+    hist_card = (
+        '<div class="card"><h4>Predicted probability distribution</h4>'
+        f'<div class="hist">{bars}</div>'
+        '<div class="axis"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>'
+        f'<div class="legend">Most predictions cluster low, near the <b>{mean_pred:.0f}%</b> mean &mdash; the model rarely commits to &ldquo;delayed&rdquo;.</div></div>')
+
+    middle = f'<div class="grid2">{conf_card}{hist_card}</div>' if has_labels else hist_card
+
+    has_out = "OUTCOME" in preview_df.columns
+    thead = ('<tr><th>Origin</th><th>Hour</th><th>Airline</th><th>Prob.</th><th>Actual</th><th>Hit</th></tr>'
+             if has_out else '<tr><th>Origin</th><th>Hour</th><th>Airline</th><th>Prob.</th></tr>')
+    rows_html = ""
+    for _, r in preview_df.head(12).iterrows():
+        origin = html_lib.escape(str(r.get("ORIGIN", "")))
+        try:
+            hour = str(int(round(float(r.get("DEP_HOUR")))))
+        except (TypeError, ValueError):
+            hour = html_lib.escape(str(r.get("DEP_HOUR", "")))
+        airline = html_lib.escape(str(r.get("AIRLINE_CODE", "")))
+        p = float(r.get("Delay probability (%)", 0.0))
+        cls = "hi" if p >= 40 else ("mid" if p >= 25 else "lo")
+        cells = (f'<td>{origin}</td><td>{hour}</td><td>{airline}</td>'
+                 f'<td><span class="pill {cls}">{p:.0f}%</span></td>')
+        if has_out:
+            actual_raw = str(r.get("OUTCOME", ""))
+            actual = html_lib.escape(actual_raw)
+            if actual_raw in ("On-time", "Delayed"):
+                hit = (p >= 50) == (actual_raw == "Delayed")
+                tick = "✓" if hit else "✗"
+                hit_cell = f'<td class="{"ok" if hit else "miss"}">{tick}</td>'
+            else:
+                hit_cell = '<td></td>'
+            cells += f'<td>{actual}</td>{hit_cell}'
+        rows_html += f'<tr>{cells}</tr>'
+    table_card = (
+        '<div class="card"><h4>Per-flight results (first 12)</h4>'
+        f'<div class="tbl-wrap"><table><thead>{thead}</thead><tbody>{rows_html}</tbody></table></div></div>')
+
+    if has_labels:
+        title = "Model performance on your uploaded data"
+        sub = f"{n} flights scored against your labels &mdash; data the model did not see during training"
+    else:
+        title = "Prediction analysis for your uploaded flights"
+        sub = f"{n} flights scored from your uploaded CSV (no OUTCOME column provided, so no accuracy metrics)"
+
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' + PANEL_STYLE + '</head><body>'
+        '<div class="analysis">'
+        f'<h3>{title}</h3><p class="sub">{sub}</p>'
+        f'<div class="metrics">{metrics_html}</div>'
+        f'{middle}{table_card}'
+        '</div></body></html>')
 
 df = load_data()
 model = load_model()
@@ -169,21 +333,13 @@ elif page == "Prediction":
                     X_batch=pd.DataFrame(feat_rows)[MODEL_FEATURES]
                     probs=model.predict_proba(X_batch)[:,1]*100
                     results=up.copy(); results["Delay probability (%)"]=probs.round(1)
-                    st.dataframe(results,hide_index=True,use_container_width=True)
-                    st.markdown(f'<div class="insight-box"><b>{len(results)}</b> flights scored · mean predicted delay probability <b>{probs.mean():.1f}%</b></div>',unsafe_allow_html=True)
                     if "OUTCOME" in up.columns:
-                        mask=up["OUTCOME"].isin(["On-time","Delayed"])
-                        y_true=(up.loc[mask,"OUTCOME"]=="Delayed").astype(int)
-                        y_prob=probs[mask.values]/100
-                        y_pred=(y_prob>=0.5).astype(int)
-                        if len(y_true)>0:
-                            acc=accuracy_score(y_true,y_pred)*100
-                            st.markdown("**Model performance on your uploaded data**")
-                            if y_true.nunique()>1:
-                                auc=roc_auc_score(y_true,y_prob)
-                                st.markdown(f'<div class="metric-card">Accuracy @ 0.5 threshold: <b>{acc:.1f}%</b> · ROC-AUC: <b>{auc:.3f}</b> · on {len(y_true)} labelled flights</div>',unsafe_allow_html=True)
-                            else:
-                                st.markdown(f'<div class="metric-card">Accuracy @ 0.5 threshold: <b>{acc:.1f}%</b> · ROC-AUC unavailable (only one class present) · on {len(y_true)} labelled flights</div>',unsafe_allow_html=True)
+                        lab=up["OUTCOME"].isin(["On-time","Delayed"])
+                        y_true=np.where(lab.values,(up["OUTCOME"].astype(str)=="Delayed").values,np.nan)
+                    else:
+                        y_true=None
+                    components.html(render_analysis_panel(y_true,probs/100.0,results),height=900,scrolling=False)
+                    st.dataframe(results,hide_index=True,use_container_width=True)
                 except Exception as e:
                     st.error(f"Could not process the CSV - {e}. Check that ORIGIN and AIRLINE_CODE values appear in the training data and that numeric columns contain valid values.")
 
