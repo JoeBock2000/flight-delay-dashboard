@@ -94,7 +94,7 @@ elif page == "System":
     st.caption("The dashboard runs on a static, curated dataset stored alongside the app. The architecture extends to real-time ingestion via an API and database as a future step.")
     with open(FLOWCHART_PATH, encoding="utf-8") as f:
         html_content = f.read()
-    components.html(html_content, height=760, scrolling=False)
+    components.html(html_content, height=820, scrolling=False)
 
 elif page == "Prediction":
     st.title("Delay Prediction")
