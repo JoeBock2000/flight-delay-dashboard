@@ -7,6 +7,8 @@ import joblib
 import streamlit.components.v1 as components
 from sklearn.metrics import accuracy_score, roc_auc_score
 import html as html_lib
+import requests
+from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -55,6 +57,27 @@ def build_encoders():
 @st.cache_data
 def airport_reference(df):
     return df.groupby("ORIGIN").agg(DAILY_TRAFFIC=("DAILY_TRAFFIC","mean"),WSF2=("WSF2","mean"),AWND=("AWND","mean"),TMAX=("TMAX","mean"),TMIN=("TMIN","mean"),PRCP=("PRCP","mean"),SNOW=("SNOW","mean"),SNWD=("SNWD","mean"),FOG=("FOG","mean"),HAZE_SMOKE=("HAZE_SMOKE","mean"),DISTANCE=("DISTANCE","mean"))
+
+# Real coordinates for the 10 US hub airports in the dataset. Only these have
+# live-weather support; any other code is out of the model's trained scope.
+AIRPORT_COORDS = {
+    "ATL": (33.6407, -84.4277), "DEN": (39.8561, -104.6737), "DFW": (32.8998, -97.0403),
+    "JFK": (40.6413, -73.7781), "LAS": (36.0840, -115.1537), "LAX": (33.9416, -118.4085),
+    "MCO": (28.4312, -81.3081), "ORD": (41.9742, -87.9073), "SEA": (47.4502, -122.3088),
+    "SFO": (37.6213, -122.3790),
+}
+
+def season_from_month(m):
+    if m in (12,1,2): return "Winter"
+    if m in (3,4,5): return "Spring"
+    if m in (6,7,8): return "Summer"
+    return "Autumn"
+
+def tod_from_hour(h):
+    if 5<=h<12: return "Morning"
+    if 12<=h<17: return "Afternoon"
+    if 17<=h<21: return "Evening"
+    return "Night"
 
 # Dark "analysis panel" for CSV-upload results. Styling is taken verbatim from
 # analysis_panel.html; every value is computed from the real uploaded data.
@@ -219,6 +242,56 @@ def render_analysis_panel(y_true, y_prob, preview_df):
         f'{middle}{table_card}'
         '</div></body></html>')
 
+# Extra styling for the Live panel; reuses the PANEL_STYLE tiles/cards/gradient.
+LIVE_EXTRA_STYLE = """<style>
+  .wx{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  @media(max-width:640px){.wx{grid-template-columns:1fr;}}
+  .big{font-size:34px;font-weight:700;color:#EAF1FF;margin:2px 0 0;}
+  .pbar{height:12px;background:#232b3c;border:1px solid #313a4f;border-radius:8px;overflow:hidden;margin-top:10px;}
+  .pbar>span{display:block;height:100%;background:linear-gradient(90deg,#E0844A,#D85A30);}
+  .scope{background:linear-gradient(160deg,#3a2a12,#2f230e);border:1px solid #7a531c;color:#F0C08B;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.5;}
+  .ts{font-size:11px;color:#8697b4;margin-top:10px;}
+</style>"""
+
+def render_live_panel(airport, airline, dep_hour, distance, weather, ts_utc, proba, derived, scope_msg=None):
+    esc = html_lib.escape
+    params = (
+        f'<div class="metric"><div class="k">Airport</div><div class="v">{esc(airport)}</div></div>'
+        f'<div class="metric"><div class="k">Airline</div><div class="v">{esc(airline)}</div></div>'
+        f'<div class="metric"><div class="k">Departure hour</div><div class="v">{int(dep_hour)}<small>:00</small></div></div>'
+        f'<div class="metric"><div class="k">Distance</div><div class="v">{int(distance)}<small> mi</small></div></div>')
+    wx = (
+        '<div class="card"><h4>Live weather</h4><div class="wx">'
+        f'<div class="metric"><div class="k">Temperature</div><div class="v">{weather["temp"]:.0f}<small>&deg;F</small></div></div>'
+        f'<div class="metric"><div class="k">Precipitation</div><div class="v">{weather["precip"]:.2f}<small> in</small></div></div>'
+        f'<div class="metric"><div class="k">Wind / gust</div><div class="v">{weather["wind"]:.0f}<small>/{weather["gust"]:.0f} mph</small></div></div>'
+        '</div>'
+        f'<div class="ts">Live weather fetched at {esc(ts_utc)} from Open-Meteo &middot; {esc(airport)}</div></div>')
+    if proba is not None:
+        pct = max(0.0, min(float(proba), 100.0))
+        result = (
+            '<div class="grid2">'
+            '<div class="card"><h4>Model-predicted delay risk</h4>'
+            f'<div class="big">{proba:.0f}%</div>'
+            f'<div class="pbar"><span style="width:{pct:.0f}%"></span></div>'
+            '<div class="legend">The live input is the weather; the delay risk is the model&rsquo;s prediction, not an observed outcome.</div></div>'
+            '<div class="card"><h4>Derived</h4>'
+            f'<div class="metric"><div class="k">Time of day</div><div class="v" style="font-size:16px">{esc(derived["tod"])}</div></div>'
+            f'<div class="metric" style="margin-top:10px"><div class="k">Season</div><div class="v" style="font-size:16px">{esc(derived["season"])}</div></div>'
+            f'<div class="metric" style="margin-top:10px"><div class="k">Airport traffic</div><div class="v" style="font-size:16px">{esc(derived["traffic_level"])}</div></div>'
+            '</div></div>')
+    else:
+        result = f'<div class="scope">{esc(scope_msg or "Prediction unavailable.")}</div>'
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' + PANEL_STYLE + LIVE_EXTRA_STYLE + '</head><body>'
+        '<div class="analysis">'
+        '<h3>Live weather prediction</h3>'
+        '<p class="sub">Weather is fetched live from Open-Meteo and fed into the model. The delay risk shown is a model prediction, not an observed outcome.</p>'
+        f'<div class="metrics">{params}</div>'
+        f'{wx}'
+        f'<div style="margin-top:18px">{result}</div>'
+        '</div></body></html>')
+
 df = load_data()
 model = load_model()
 encoders = build_encoders()
@@ -230,12 +303,12 @@ BASELINE_DELAY = (OPERATED["OUTCOME"]=="Delayed").mean()*100
 st.sidebar.markdown("### Flight Delay")
 st.sidebar.caption("Factor Discovery & Prediction")
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Navigate",["Overview","System","Prediction","Factors","Patterns","Mechanisms","Synthesis"],label_visibility="collapsed")
+page = st.sidebar.radio("Navigate",["Overview","System","Prediction","Live","Factors","Patterns","Mechanisms","Synthesis"],label_visibility="collapsed")
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Dataset: {len(df):,} flights\n\n10 US hub airports\n\nBTS + NOAA, 2019-2023")
 
 if page == "Overview":
-    st.title("Flight Delay: Factor Discovery & Prediction Dashboard")
+    st.title(":material/space_dashboard: Flight Delay: Factor Discovery & Prediction Dashboard")
     st.caption("A data mining approach to understanding flight disruption | BTS + NOAA, 2019-2023")
     c1,c2,c3,c4 = st.columns(4)
     total=len(df); delayed=(df["OUTCOME"]=="Delayed").sum(); cancelled=(df["OUTCOME"]=="Cancelled").sum()
@@ -255,14 +328,14 @@ if page == "Overview":
     plt.tight_layout(); st.pyplot(fig)
 
 elif page == "System":
-    st.title("System architecture")
+    st.title(":material/schema: System architecture")
     st.caption("The dashboard runs on a static, curated dataset stored alongside the app. The architecture extends to real-time ingestion via an API and database as a future step.")
     with open(FLOWCHART_PATH, encoding="utf-8") as f:
         html_content = f.read()
     components.html(html_content, height=720, scrolling=False)
 
 elif page == "Prediction":
-    st.title("Delay Prediction")
+    st.title(":material/insights: Delay Prediction")
     st.caption("Estimate delay risk from flight parameters. Discovery, not this tab, is where the value lies.")
     left,right = st.columns([1,1])
     with left:
@@ -272,20 +345,10 @@ elif page == "Prediction":
         month=st.slider("Month",1,12,7)
         airline=st.selectbox("Airline",sorted(df["AIRLINE_CODE"].unique()))
         distance=st.slider("Flight distance (miles)",100,3000,800,step=50)
-        st.markdown("**Weather conditions**")
+        st.markdown(":material/cloud: **Weather conditions**")
         wc1,wc2=st.columns(2)
         with wc1: thunder=st.checkbox("Thunderstorm"); fog=st.checkbox("Fog")
         with wc2: precip=st.slider("Precipitation (in)",0.0,3.0,0.0,step=0.1); high_traffic=st.checkbox("Peak traffic day")
-    def season_from_month(m):
-        if m in (12,1,2): return "Winter"
-        if m in (3,4,5): return "Spring"
-        if m in (6,7,8): return "Summer"
-        return "Autumn"
-    def tod_from_hour(h):
-        if 5<=h<12: return "Morning"
-        if 12<=h<17: return "Afternoon"
-        if 17<=h<21: return "Evening"
-        return "Night"
     ref=airport_ref.loc[origin]; season=season_from_month(month); tod=tod_from_hour(dep_hour)
     traffic=ref["DAILY_TRAFFIC"]*(1.15 if high_traffic else 1.0)
     row={"TIME_OF_DAY":encoders["TIME_OF_DAY"].transform([tod])[0],"FOG":1 if fog else 0,"SEASON":encoders["SEASON"].transform([season])[0],"IS_WEEKEND":0,"AIRLINE_CODE":encoders["AIRLINE_CODE"].transform([str(airline)])[0],"MONTH":month,"DEP_HOUR":dep_hour,"DAY_OF_WEEK":5,"ORIGIN":encoders["ORIGIN"].transform([origin])[0],"WSF2":ref["WSF2"],"THUNDER":1 if thunder else 0,"HAZE_SMOKE":1 if ref["HAZE_SMOKE"]>0.5 else 0,"PRCP":precip,"TMAX":ref["TMAX"],"TMIN":ref["TMIN"],"DISTANCE":distance,"AWND":ref["AWND"],"DAILY_TRAFFIC":traffic,"SNOW":ref["SNOW"],"SNWD":ref["SNWD"]}
@@ -300,7 +363,7 @@ elif page == "Prediction":
         st.dataframe(pd.DataFrame({"Derived feature":["Season","Time of day","Airport traffic (avg)","Typical wind","Typical temp max"],"Value":[season,tod,f"{traffic:.0f}/day",f"{ref['WSF2']:.1f}",f"{ref['TMAX']:.0f}F"]}),hide_index=True,use_container_width=True)
 
     st.markdown("---")
-    st.subheader("Batch model testing (CSV upload)")
+    st.subheader(":material/upload_file: Batch model testing (CSV upload)")
     st.caption("Score many flights at once. Include an optional OUTCOME column (On-time/Delayed) to measure model performance on your own unseen data.")
     REQUIRED_COLS=["ORIGIN","DEP_HOUR","MONTH","AIRLINE_CODE"]
     template=pd.DataFrame([
@@ -343,8 +406,53 @@ elif page == "Prediction":
                 except Exception as e:
                     st.error(f"Could not process the CSV - {e}. Check that ORIGIN and AIRLINE_CODE values appear in the training data and that numeric columns contain valid values.")
 
+elif page == "Live":
+    st.title(":material/cloud: Live weather prediction")
+    st.caption("Weather is fetched live from the Open-Meteo API and fed into the model. Live delay outcomes are not published in real time, so the live input is the weather and the delay risk shown is the model's prediction.")
+    lc1,lc2=st.columns(2)
+    with lc1:
+        live_airport=st.text_input("Airport code",value="ATL").strip().upper()
+        live_airline=st.selectbox("Airline",sorted(df["AIRLINE_CODE"].unique()),key="live_airline")
+    with lc2:
+        live_hour=st.slider("Departure hour",5,23,19,key="live_hour")
+        live_dist=st.slider("Flight distance (miles)",100,3000,800,step=50,key="live_dist")
+    if st.button("Fetch live weather and predict"):
+        if live_airport not in AIRPORT_COORDS:
+            st.error(f"No coordinates available for '{live_airport}'. Live weather is only available for the 10 US hub airports in this project: {', '.join(sorted(AIRPORT_COORDS))}.")
+        else:
+            lat,lon=AIRPORT_COORDS[live_airport]
+            try:
+                url=(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                     "&current=temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m"
+                     "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch")
+                resp=requests.get(url,timeout=15); resp.raise_for_status()
+                cur=resp.json()["current"]
+            except Exception as e:
+                cur=None; st.error(f"Could not fetch live weather from Open-Meteo for {live_airport} - {e}. Please try again in a moment.")
+            if cur is not None:
+                temp=float(cur.get("temperature_2m",0.0)); precip=float(cur.get("precipitation",0.0))
+                wind=float(cur.get("wind_speed_10m",0.0)); gust=float(cur.get("wind_gusts_10m",0.0))
+                now=datetime.utcnow(); ts=now.strftime("%Y-%m-%d %H:%M UTC")
+                ref=airport_ref.loc[live_airport]
+                season=season_from_month(now.month); tod=tod_from_hour(live_hour)
+                traffic=float(ref["DAILY_TRAFFIC"])
+                q=airport_ref["DAILY_TRAFFIC"].rank(pct=True).loc[live_airport]
+                traffic_level=f"{'High' if q>=0.66 else ('Medium' if q>=0.33 else 'Low')} (~{traffic:.0f}/day)"
+                weather={"temp":temp,"precip":precip,"wind":wind,"gust":gust}
+                derived={"tod":tod,"season":season,"traffic_level":traffic_level}
+                proba=None; scope_msg=None
+                try:
+                    o_enc=int(encoders["ORIGIN"].transform([live_airport])[0])
+                    a_enc=int(encoders["AIRLINE_CODE"].transform([str(live_airline)])[0])
+                    row={"TIME_OF_DAY":encoders["TIME_OF_DAY"].transform([tod])[0],"FOG":0,"SEASON":encoders["SEASON"].transform([season])[0],"IS_WEEKEND":1 if now.weekday()>=5 else 0,"AIRLINE_CODE":a_enc,"MONTH":now.month,"DEP_HOUR":live_hour,"DAY_OF_WEEK":now.weekday(),"ORIGIN":o_enc,"WSF2":gust,"THUNDER":0,"HAZE_SMOKE":1 if ref["HAZE_SMOKE"]>0.5 else 0,"PRCP":precip,"TMAX":temp,"TMIN":temp,"DISTANCE":live_dist,"AWND":wind,"DAILY_TRAFFIC":traffic,"SNOW":ref["SNOW"],"SNWD":ref["SNWD"]}
+                    X_row=pd.DataFrame([row])[MODEL_FEATURES]
+                    proba=float(model.predict_proba(X_row)[0,1])*100
+                except (ValueError,KeyError):
+                    scope_msg=f"Live weather retrieved successfully, but the model was trained only on these US hub airports and cannot generate a prediction for {live_airport}. This is a scope limitation of the model, not an error."
+                components.html(render_live_panel(live_airport,str(live_airline),live_hour,live_dist,weather,ts,proba,derived,scope_msg),height=760,scrolling=False)
+
 elif page == "Factors":
-    st.title("What drives each disruption type")
+    st.title(":material/bar_chart: What drives each disruption type")
     st.caption("SHAP-derived importance shows delays and cancellations have different signatures")
     st.markdown('<div class="insight-box">Key insight: delays are an <b>intraday, congestion-driven</b> phenomenon (departure hour dominates), while cancellations are a <b>monthly, weather-driven</b> one (month and precipitation dominate).</div>',unsafe_allow_html=True)
     shap_data=pd.DataFrame({"Feature":["MONTH","DEP_HOUR","DISTANCE","SEASON","DAILY_TRAFFIC","AIRLINE_CODE","PRCP","AWND","TMIN","TMAX","WSF2","TIME_OF_DAY"],"Delayed":[0.0278,0.0423,0.0108,0.0085,0.0135,0.0096,0.0057,0.0076,0.0070,0.0065,0.0065,0.0093],"Cancelled":[0.0638,0.0093,0.0111,0.0188,0.0128,0.0108,0.0177,0.0092,0.0080,0.0084,0.0070,0.0041]})
@@ -362,7 +470,7 @@ elif page == "Factors":
     plt.tight_layout(); st.pyplot(fig)
 
 elif page == "Patterns":
-    st.title("Disruption patterns and profiles")
+    st.title(":material/grid_view: Disruption patterns and profiles")
     st.caption("Association rules and the flight clusters that emerge from the data")
     st.subheader("Association rules")
     rules=pd.DataFrame({"Conditions":["Summer + Evening","Heavy precipitation","Summer + Very high traffic","Airline WN","Evening","Very high gusts","Hot temperature","Long distance"],"Outcome":["Delayed"]*8,"Support":[0.044,0.021,0.031,0.028,0.056,0.048,0.052,0.051],"Confidence":[0.317,0.271,0.257,0.249,0.245,0.227,0.215,0.206],"Lift":[1.72,1.46,1.39,1.35,1.33,1.23,1.17,1.11]})
@@ -384,7 +492,7 @@ elif page == "Patterns":
             cols[i].markdown(f'<div class="metric-card"><small>{names[cid]}</small><h2>{cs.loc[cid,"delay_rate"]:.1f}%</h2><small>delay rate · {int(cs.loc[cid,"size"]):,} flights</small></div>',unsafe_allow_html=True)
 
 elif page == "Mechanisms":
-    st.title("How disruption works")
+    st.title(":material/timeline: How disruption works")
     st.caption("The mechanisms behind delays: propagation, severity, and airport efficiency")
     st.subheader("Delay propagation through the operating day")
     hourly=OPERATED.groupby("DEP_HOUR").agg(delay_rate=("OUTCOME",lambda x:(x=="Delayed").mean()*100),avg_delay=("DEP_DELAY","mean"),flights=("OUTCOME","size")).reset_index()
@@ -407,7 +515,7 @@ elif page == "Mechanisms":
     st.markdown('<div class="insight-box">Atlanta handles the highest traffic yet has among the lowest delay rates. Operational efficiency, not volume, is decisive.</div>',unsafe_allow_html=True)
 
 elif page == "Synthesis":
-    st.title("Bringing the methods together")
+    st.title(":material/hub: Bringing the methods together")
     st.caption("Where the three methods agree, and what they conclude")
     st.subheader("Factor agreement across methods")
     tri=pd.DataFrame({"Factor":["Time of day","Season / Month","Weather","Airport traffic","Temperature","Distance"],"Association":[1.00,0.93,0.85,0.00,0.88,0.84],"SHAP":[0.65,1.00,0.55,0.13,0.31,1.00],"Clustering":[0.02,0.40,0.50,0.06,1.00,0.05]})
