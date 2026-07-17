@@ -79,6 +79,18 @@ def tod_from_hour(h):
     if 17<=h<21: return "Evening"
     return "Night"
 
+# Cache live weather per airport for 10 minutes so repeated demo requests reuse
+# the same response instead of re-hitting Open-Meteo (avoids 429 rate limits).
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_live_weather(airport):
+    lat, lon = AIRPORT_COORDS[airport]
+    url = (f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+           "&current=temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m"
+           "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch")
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    return resp.json()["current"]
+
 # Dark "analysis panel" for CSV-upload results. Styling is taken verbatim from
 # analysis_panel.html; every value is computed from the real uploaded data.
 PANEL_STYLE = """<style>
@@ -420,15 +432,14 @@ elif page == "Live":
         if live_airport not in AIRPORT_COORDS:
             st.error(f"No coordinates available for '{live_airport}'. Live weather is only available for the 10 US hub airports in this project: {', '.join(sorted(AIRPORT_COORDS))}.")
         else:
-            lat,lon=AIRPORT_COORDS[live_airport]
             try:
-                url=(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
-                     "&current=temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m"
-                     "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch")
-                resp=requests.get(url,timeout=15); resp.raise_for_status()
-                cur=resp.json()["current"]
+                cur=fetch_live_weather(live_airport)
             except Exception as e:
-                cur=None; st.error(f"Could not fetch live weather from Open-Meteo for {live_airport} - {e}. Please try again in a moment.")
+                cur=None
+                if "429" in str(e):
+                    st.error(f"Open-Meteo rate limit reached (HTTP 429) for {live_airport}. Please wait a moment and try again - responses are cached for 10 minutes per airport to reduce calls.")
+                else:
+                    st.error(f"Could not fetch live weather from Open-Meteo for {live_airport} - {e}. Please try again in a moment.")
             if cur is not None:
                 temp=float(cur.get("temperature_2m",0.0)); precip=float(cur.get("precipitation",0.0))
                 wind=float(cur.get("wind_speed_10m",0.0)); gust=float(cur.get("wind_gusts_10m",0.0))
