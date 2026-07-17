@@ -63,7 +63,7 @@ PANEL_STYLE = """<style>
   *{box-sizing:border-box;}
   .analysis{
     font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    max-width:820px;margin:14px auto;border-radius:16px;padding:22px 24px 26px;
+    width:100%;margin:14px 0;border-radius:16px;padding:22px 24px 26px;
     color:#E8EEF7;
     background:linear-gradient(145deg,#1c2230 0%,#141821 45%,#1a2030 100%);
     border:1px solid #2b3346;
