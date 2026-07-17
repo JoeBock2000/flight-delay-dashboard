@@ -24,6 +24,7 @@ h1, h2, h3 {color: #0F1E3D;}
 DATA_PATH = "flight_delay_clean.parquet"
 MODEL_PATH = "xgboost_model.json"
 ENCODERS_PATH = "encoders.pkl"
+FLOWCHART_PATH = "system_flowchart.svg"
 # Only the columns the dashboard actually uses. Loading the full 70-column parquet
 # and taking the OPERATED copy peaks at ~2.7 GB and gets OOM-killed on Streamlit Cloud.
 NEEDED_COLUMNS = ["OUTCOME","DEP_DELAY","DEP_HOUR","ORIGIN","AIRLINE_CODE","DAILY_TRAFFIC","CLUSTER","TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","MONTH","DAY_OF_WEEK","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","SNOW","SNWD"]
@@ -63,7 +64,7 @@ BASELINE_DELAY = (OPERATED["OUTCOME"]=="Delayed").mean()*100
 st.sidebar.markdown("### Flight Delay")
 st.sidebar.caption("Factor Discovery & Prediction")
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Navigate",["Overview","Prediction","Factors","Patterns","Mechanisms","Synthesis"],label_visibility="collapsed")
+page = st.sidebar.radio("Navigate",["Overview","System","Prediction","Factors","Patterns","Mechanisms","Synthesis"],label_visibility="collapsed")
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Dataset: {len(df):,} flights\n\n10 US hub airports\n\nBTS + NOAA, 2019-2023")
 
@@ -86,6 +87,14 @@ if page == "Overview":
     for i,v in enumerate(counts.values[::-1]): ax.text(v,i,f" {v:,} ({v/total*100:.1f}%)",va="center",fontsize=9)
     ax.set_xlabel("Number of flights"); ax.spines[["top","right"]].set_visible(False)
     plt.tight_layout(); st.pyplot(fig)
+
+elif page == "System":
+    st.title("System architecture")
+    st.caption("The dashboard runs on a static, curated dataset stored alongside the app. The architecture extends to real-time ingestion via an API and database as a future step.")
+    with open(FLOWCHART_PATH, encoding="utf-8") as f:
+        svg = f.read()
+    svg = svg[svg.find("<svg"):]
+    st.markdown(f'<div style="max-width:720px;margin:0 auto;">{svg}</div>', unsafe_allow_html=True)
 
 elif page == "Prediction":
     st.title("Delay Prediction")
