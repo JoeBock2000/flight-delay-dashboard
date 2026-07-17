@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xgboost as xgb
 import joblib
+import streamlit.components.v1 as components
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -24,7 +25,7 @@ h1, h2, h3 {color: #0F1E3D;}
 DATA_PATH = "flight_delay_clean.parquet"
 MODEL_PATH = "xgboost_model.json"
 ENCODERS_PATH = "encoders.pkl"
-FLOWCHART_PATH = "system_flowchart.svg"
+FLOWCHART_PATH = "flowchart_animated.html"
 # Only the columns the dashboard actually uses. Loading the full 70-column parquet
 # and taking the OPERATED copy peaks at ~2.7 GB and gets OOM-killed on Streamlit Cloud.
 NEEDED_COLUMNS = ["OUTCOME","DEP_DELAY","DEP_HOUR","ORIGIN","AIRLINE_CODE","DAILY_TRAFFIC","CLUSTER","TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","MONTH","DAY_OF_WEEK","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","SNOW","SNWD"]
@@ -92,9 +93,8 @@ elif page == "System":
     st.title("System architecture")
     st.caption("The dashboard runs on a static, curated dataset stored alongside the app. The architecture extends to real-time ingestion via an API and database as a future step.")
     with open(FLOWCHART_PATH, encoding="utf-8") as f:
-        svg = f.read()
-    svg = svg[svg.find("<svg"):]
-    st.markdown(f'<div style="max-width:720px;margin:0 auto;">{svg}</div>', unsafe_allow_html=True)
+        html_content = f.read()
+    components.html(html_content, height=760, scrolling=False)
 
 elif page == "Prediction":
     st.title("Delay Prediction")
