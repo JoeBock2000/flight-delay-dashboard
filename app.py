@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import xgboost as xgb
-from sklearn.preprocessing import LabelEncoder
+import joblib
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -23,7 +23,7 @@ h1, h2, h3 {color: #0F1E3D;}
 
 DATA_PATH = "flight_delay_clean.parquet"
 MODEL_PATH = "xgboost_model.json"
-MODEL_FEATURES = ["TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","AIRLINE_CODE","MONTH","DEP_HOUR","DAY_OF_WEEK","ORIGIN","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","DAILY_TRAFFIC","SNOW","SNWD"]
+ENCODERS_PATH = "encoders.pkl"
 # Only the columns the dashboard actually uses. Loading the full 70-column parquet
 # and taking the OPERATED copy peaks at ~2.7 GB and gets OOM-killed on Streamlit Cloud.
 NEEDED_COLUMNS = ["OUTCOME","DEP_DELAY","DEP_HOUR","ORIGIN","AIRLINE_CODE","DAILY_TRAFFIC","CLUSTER","TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","MONTH","DAY_OF_WEEK","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","SNOW","SNWD"]
@@ -42,11 +42,11 @@ def load_model():
     return m
 
 @st.cache_resource
-def build_encoders(df):
-    enc = {}
-    for col in ["TIME_OF_DAY","SEASON","AIRLINE_CODE","ORIGIN"]:
-        le = LabelEncoder(); le.fit(df[col].astype(str)); enc[col] = le
-    return enc
+def load_encoder_bundle():
+    return joblib.load(ENCODERS_PATH)
+
+def build_encoders():
+    return load_encoder_bundle()['encoders']
 
 @st.cache_data
 def airport_reference(df):
@@ -54,7 +54,8 @@ def airport_reference(df):
 
 df = load_data()
 model = load_model()
-encoders = build_encoders(df)
+encoders = build_encoders()
+MODEL_FEATURES = load_encoder_bundle()['feature_order']
 airport_ref = airport_reference(df)
 OPERATED = df[df["OUTCOME"].isin(["On-time","Delayed"])]
 BASELINE_DELAY = (OPERATED["OUTCOME"]=="Delayed").mean()*100
