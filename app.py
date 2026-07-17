@@ -116,8 +116,6 @@ elif page == "Prediction":
     traffic=ref["DAILY_TRAFFIC"]*(1.15 if high_traffic else 1.0)
     row={"TIME_OF_DAY":encoders["TIME_OF_DAY"].transform([tod])[0],"FOG":1 if fog else 0,"SEASON":encoders["SEASON"].transform([season])[0],"IS_WEEKEND":0,"AIRLINE_CODE":encoders["AIRLINE_CODE"].transform([str(airline)])[0],"MONTH":month,"DEP_HOUR":dep_hour,"DAY_OF_WEEK":5,"ORIGIN":encoders["ORIGIN"].transform([origin])[0],"WSF2":ref["WSF2"],"THUNDER":1 if thunder else 0,"HAZE_SMOKE":1 if ref["HAZE_SMOKE"]>0.5 else 0,"PRCP":precip,"TMAX":ref["TMAX"],"TMIN":ref["TMIN"],"DISTANCE":distance,"AWND":ref["AWND"],"DAILY_TRAFFIC":traffic,"SNOW":ref["SNOW"],"SNWD":ref["SNWD"]}
     X_row=pd.DataFrame([row])[MODEL_FEATURES]
-    with st.expander("Debug: feature vector"):
-        st.write({f: float(X_row[f].values[0]) for f in MODEL_FEATURES})
     proba=float(model.predict_proba(X_row)[0,1])*100
     with right:
         st.subheader("Estimated delay risk")
