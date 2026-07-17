@@ -25,7 +25,7 @@ h1, h2, h3 {color: #0F1E3D;}
 DATA_PATH = "flight_delay_clean.parquet"
 MODEL_PATH = "xgboost_model.json"
 ENCODERS_PATH = "encoders.pkl"
-FLOWCHART_PATH = "flowchart_animated.html"
+FLOWCHART_PATH = "flowchart_sequential.html"
 # Only the columns the dashboard actually uses. Loading the full 70-column parquet
 # and taking the OPERATED copy peaks at ~2.7 GB and gets OOM-killed on Streamlit Cloud.
 NEEDED_COLUMNS = ["OUTCOME","DEP_DELAY","DEP_HOUR","ORIGIN","AIRLINE_CODE","DAILY_TRAFFIC","CLUSTER","TIME_OF_DAY","FOG","SEASON","IS_WEEKEND","MONTH","DAY_OF_WEEK","WSF2","THUNDER","HAZE_SMOKE","PRCP","TMAX","TMIN","DISTANCE","AWND","SNOW","SNWD"]
@@ -94,7 +94,7 @@ elif page == "System":
     st.caption("The dashboard runs on a static, curated dataset stored alongside the app. The architecture extends to real-time ingestion via an API and database as a future step.")
     with open(FLOWCHART_PATH, encoding="utf-8") as f:
         html_content = f.read()
-    components.html(html_content, height=820, scrolling=False)
+    components.html(html_content, height=720, scrolling=False)
 
 elif page == "Prediction":
     st.title("Delay Prediction")

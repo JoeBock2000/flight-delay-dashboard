@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  * { box-sizing: border-box; }
+  .wrap {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 860px; margin: 0 auto; padding: 10px 6px 18px;
+    display: grid; grid-template-columns: 1fr 260px; gap: 18px; align-items: start;
+  }
+  @media (max-width: 720px) { .wrap { grid-template-columns: 1fr; } }
+  .stage-box { transition: opacity .5s ease, transform .5s ease; }
+  .stage-box.dim { opacity: .28; }
+  .stage-box.active .card { stroke-width: 2.5; }
+  .pipe { stroke: #C9C7BE; stroke-width: 2; fill: none; stroke-linecap: round; }
+  .pipe.lit { stroke: #378ADD; stroke-dasharray: 6 6; animation: dash 1s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -24; } }
+  .flow { fill: #378ADD; opacity: 0; }
+  .flow.lit { opacity: 1; }
+
+  .panel {
+    border: 1px solid #E1E8F0; border-radius: 12px; background: #F8FAFD;
+    padding: 16px 18px; position: sticky; top: 8px;
+  }
+  .panel .step-no { font-size: 12px; font-weight: 700; color: #378ADD; letter-spacing: .04em; text-transform: uppercase; }
+  .panel h3 { margin: 6px 0 8px; font-size: 17px; color: #0F1E3D; }
+  .panel p { margin: 0; font-size: 13px; line-height: 1.6; color: #444441; }
+  .dots { display: flex; gap: 6px; margin-top: 14px; }
+  .dots span { width: 8px; height: 8px; border-radius: 50%; background: #D3D1C7; transition: background .3s; }
+  .dots span.on { background: #378ADD; }
+  .controls { margin-top: 14px; display: flex; gap: 8px; }
+  .controls button {
+    font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 8px;
+    border: 1px solid #C9C7BE; background: #fff; color: #2C2C2A; cursor: pointer;
+  }
+  .controls button:hover { border-color: #378ADD; color: #0C447C; }
+  .btitle { font-weight: 700; }
+  .bsub { font-size: 11px; }
+  .tier { font-size: 12px; font-weight: 700; fill: #6B6A64; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <svg id="fc" class="fc-svg" width="100%" viewBox="0 0 520 660" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="#8A8880" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+
+      <!-- pipes (drawn first, under boxes) -->
+      <path class="pipe" data-pipe="0" d="M120 74 L230 120" marker-end="url(#ah)"/>
+      <path class="pipe" data-pipe="0" d="M320 74 L270 120" marker-end="url(#ah)"/>
+      <path class="pipe" data-pipe="1" d="M250 176 L250 214" marker-end="url(#ah)"/>
+      <path class="pipe" data-pipe="2" d="M120 270 L230 308" marker-end="url(#ah)"/>
+      <path class="pipe" data-pipe="2" d="M320 270 L270 308" marker-end="url(#ah)"/>
+      <path class="pipe" data-pipe="3" d="M250 364 L250 402" marker-end="url(#ah)"/>
+
+      <!-- flow dots -->
+      <circle class="flow" data-flow="0" r="3.5"><animateMotion dur="1.4s" repeatCount="indefinite" path="M120 74 L230 120"/></circle>
+      <circle class="flow" data-flow="0" r="3.5"><animateMotion dur="1.4s" repeatCount="indefinite" path="M320 74 L270 120"/></circle>
+      <circle class="flow" data-flow="1" r="3.5"><animateMotion dur="1.2s" repeatCount="indefinite" path="M250 176 L250 214"/></circle>
+      <circle class="flow" data-flow="2" r="3.5"><animateMotion dur="1.4s" repeatCount="indefinite" path="M120 270 L230 308"/></circle>
+      <circle class="flow" data-flow="2" r="3.5"><animateMotion dur="1.4s" repeatCount="indefinite" path="M320 270 L270 308"/></circle>
+      <circle class="flow" data-flow="3" r="3.5"><animateMotion dur="1.2s" repeatCount="indefinite" path="M250 364 L250 402"/></circle>
+
+      <!-- Stage 0: Inputs -->
+      <g class="stage-box" data-stage="0">
+        <text class="tier" x="20" y="20">Inputs</text>
+        <g>
+          <rect class="card" x="20" y="30" width="180" height="44" rx="9" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+          <text class="btitle" x="110" y="49" text-anchor="middle" fill="#5F5E5A" font-size="13">BTS flight data</text>
+          <text class="bsub" x="110" y="64" text-anchor="middle" fill="#5F5E5A">US flights 2019-2023</text>
+        </g>
+        <g>
+          <rect class="card" x="240" y="30" width="180" height="44" rx="9" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+          <text class="btitle" x="330" y="49" text-anchor="middle" fill="#5F5E5A" font-size="13">NOAA weather</text>
+          <text class="bsub" x="330" y="64" text-anchor="middle" fill="#5F5E5A">Daily observations</text>
+        </g>
+      </g>
+
+      <!-- Stage 1: Processing -->
+      <g class="stage-box" data-stage="1">
+        <text class="tier" x="20" y="112">Processing (offline, Colab)</text>
+        <g>
+          <rect class="card" x="140" y="120" width="220" height="56" rx="9" fill="#EEEDFE" stroke="#3C3489" stroke-width="1"/>
+          <text class="btitle" x="250" y="143" text-anchor="middle" fill="#3C3489" font-size="13">Clean, merge, engineer</text>
+          <text class="bsub" x="250" y="160" text-anchor="middle" fill="#3C3489">Features + train model</text>
+        </g>
+      </g>
+
+      <!-- Stage 2: Artifacts -->
+      <g class="stage-box" data-stage="2">
+        <text class="tier" x="20" y="206">Stored artifacts (GitHub repo)</text>
+        <g>
+          <rect class="card" x="20" y="214" width="180" height="56" rx="9" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+          <text class="btitle" x="110" y="237" text-anchor="middle" fill="#0F6E56" font-size="13">Static dataset</text>
+          <text class="bsub" x="110" y="254" text-anchor="middle" fill="#0F6E56">Parquet, 929,899 rows</text>
+        </g>
+        <g>
+          <rect class="card" x="240" y="214" width="180" height="56" rx="9" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+          <text class="btitle" x="330" y="237" text-anchor="middle" fill="#0F6E56" font-size="13">Model + encoders</text>
+          <text class="bsub" x="330" y="254" text-anchor="middle" fill="#0F6E56">XGBoost, encoders</text>
+        </g>
+      </g>
+
+      <!-- Stage 3: App -->
+      <g class="stage-box" data-stage="3">
+        <text class="tier" x="20" y="400">Application (Streamlit Cloud)</text>
+        <g>
+          <rect class="card" x="140" y="408" width="220" height="56" rx="9" fill="#E6F1FB" stroke="#0C447C" stroke-width="1"/>
+          <text class="btitle" x="250" y="431" text-anchor="middle" fill="#0C447C" font-size="13">Dashboard app</text>
+          <text class="bsub" x="250" y="448" text-anchor="middle" fill="#0C447C">Loads data + model, cached</text>
+        </g>
+      </g>
+
+      <!-- Stage 4: Outputs grouped by purpose -->
+      <g class="stage-box" data-stage="4">
+        <text class="tier" x="20" y="496">Outputs</text>
+        <!-- Prediction -->
+        <g>
+          <rect class="card" x="20" y="504" width="150" height="52" rx="9" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+          <text class="btitle" x="95" y="525" text-anchor="middle" fill="#854F0B" font-size="12.5">Prediction</text>
+          <text class="bsub" x="95" y="541" text-anchor="middle" fill="#854F0B">limited, ~0.71 AUC</text>
+        </g>
+        <!-- Discovery -->
+        <g>
+          <rect class="card" x="185" y="504" width="150" height="52" rx="9" fill="#E6F1FB" stroke="#0C447C" stroke-width="1"/>
+          <text class="btitle" x="260" y="525" text-anchor="middle" fill="#0C447C" font-size="12.5">Discovery</text>
+          <text class="bsub" x="260" y="541" text-anchor="middle" fill="#0C447C">Factors, Patterns, Mechanisms</text>
+        </g>
+        <!-- Synthesis -->
+        <g>
+          <rect class="card" x="350" y="504" width="150" height="52" rx="9" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+          <text class="btitle" x="425" y="525" text-anchor="middle" fill="#0F6E56" font-size="12.5">Synthesis</text>
+          <text class="bsub" x="425" y="541" text-anchor="middle" fill="#0F6E56">triangulation</text>
+        </g>
+      </g>
+
+      <!-- Future extension -->
+      <g class="stage-box" data-stage="5">
+        <rect x="20" y="580" width="480" height="66" rx="10" fill="none" stroke="#888780" stroke-width="1.2" stroke-dasharray="6 6"/>
+        <text x="36" y="602" font-size="12.5" font-weight="700" fill="#2C2C2A">Future extension: real-time ingestion</text>
+        <g>
+          <rect x="36" y="612" width="130" height="26" rx="7" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+          <text x="101" y="629" text-anchor="middle" fill="#5F5E5A" font-size="11">Live data API</text>
+        </g>
+        <line class="pipe" x1="166" y1="625" x2="188" y2="625" marker-end="url(#ah)"/>
+        <g>
+          <rect x="192" y="612" width="120" height="26" rx="7" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+          <text x="252" y="629" text-anchor="middle" fill="#5F5E5A" font-size="11">Database</text>
+        </g>
+        <line class="pipe" x1="312" y1="625" x2="334" y2="625" marker-end="url(#ah)"/>
+        <g>
+          <rect x="338" y="612" width="150" height="26" rx="7" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+          <text x="413" y="629" text-anchor="middle" fill="#5F5E5A" font-size="11">Dashboard reads DB</text>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <div class="panel">
+    <div class="step-no" id="p-step">Stage 1 of 6</div>
+    <h3 id="p-title">Inputs</h3>
+    <p id="p-desc">Two public sources: US Bureau of Transportation Statistics flight records and NOAA daily weather observations, spanning 2019 to 2023.</p>
+    <div class="dots" id="p-dots"></div>
+    <div class="controls">
+      <button id="btn-prev">Prev</button>
+      <button id="btn-play">Pause</button>
+      <button id="btn-next">Next</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var stages = [
+    { title: "Inputs",
+      desc: "Two public sources: US Bureau of Transportation Statistics flight records and NOAA daily weather observations, spanning 2019 to 2023." },
+    { title: "Processing (offline)",
+      desc: "In Google Colab the two sources are cleaned, merged on date and airport, and feature-engineered. The XGBoost model is trained here, once, offline." },
+    { title: "Stored artifacts",
+      desc: "The cleaned static dataset, the trained model and the fitted encoders are committed to the GitHub repository. Nothing is computed live \u2014 this is a curated static dataset, not a real-time feed." },
+    { title: "Application",
+      desc: "Streamlit Cloud loads the dataset and model from the repository and caches them. This is the running dashboard the user interacts with." },
+    { title: "Outputs",
+      desc: "Prediction gives a delay probability but is deliberately limited (~0.71 ROC-AUC). The real value is Discovery \u2014 three methods finding the factors \u2014 drawn together in Synthesis. Discovery, not prediction, is the contribution." },
+    { title: "Future extension",
+      desc: "The same architecture would extend to real-time ingestion: a live data API writing to a database that the dashboard reads. Shown dashed because it is a design extension, not the current build." }
+  ];
+  var pipeAfter = { 0:0, 1:1, 2:2, 3:3 }; // stage index -> pipe group that leads OUT of it
+
+  var svg = document.getElementById('fc');
+  var boxes = {}, pipes = {}, flows = {};
+  svg.querySelectorAll('[data-stage]').forEach(function (g) { boxes[g.getAttribute('data-stage')] = g; });
+  svg.querySelectorAll('[data-pipe]').forEach(function (p) {
+    var k = p.getAttribute('data-pipe'); (pipes[k] = pipes[k] || []).push(p);
+  });
+  svg.querySelectorAll('[data-flow]').forEach(function (c) {
+    var k = c.getAttribute('data-flow'); (flows[k] = flows[k] || []).push(c);
+  });
+
+  var dotsWrap = document.getElementById('p-dots');
+  stages.forEach(function () { var s = document.createElement('span'); dotsWrap.appendChild(s); });
+  var dots = dotsWrap.children;
+
+  var cur = 0, playing = true, timer = null;
+
+  function render() {
+    Object.keys(boxes).forEach(function (k) {
+      var g = boxes[k], i = parseInt(k, 10);
+      g.classList.toggle('active', i === cur);
+      g.classList.toggle('dim', i !== cur);
+    });
+    Object.keys(pipes).forEach(function (k) {
+      var lit = (parseInt(k, 10) === cur); // pipe group leading out of current stage
+      pipes[k].forEach(function (p) { p.classList.toggle('lit', lit); });
+      (flows[k] || []).forEach(function (c) { c.classList.toggle('lit', lit); });
+    });
+    document.getElementById('p-step').textContent = 'Stage ' + (cur + 1) + ' of ' + stages.length;
+    document.getElementById('p-title').textContent = stages[cur].title;
+    document.getElementById('p-desc').textContent = stages[cur].desc;
+    for (var i = 0; i < dots.length; i++) dots[i].classList.toggle('on', i === cur);
+  }
+
+  function next() { cur = (cur + 1) % stages.length; render(); }
+  function prev() { cur = (cur - 1 + stages.length) % stages.length; render(); }
+
+  function play() { playing = true; document.getElementById('btn-play').textContent = 'Pause';
+    timer = setInterval(next, 2600); }
+  function pause() { playing = false; document.getElementById('btn-play').textContent = 'Play';
+    clearInterval(timer); }
+
+  document.getElementById('btn-next').onclick = function () { pause(); next(); };
+  document.getElementById('btn-prev').onclick = function () { pause(); prev(); };
+  document.getElementById('btn-play').onclick = function () { playing ? pause() : play(); };
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  render();
+  if (!reduce) play(); else pause();
+})();
+</script>
+</body>
+</html>
