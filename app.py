@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import xgboost as xgb
 import joblib
 import streamlit.components.v1 as components
+from sklearn.metrics import accuracy_score, roc_auc_score
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -133,6 +134,58 @@ elif page == "Prediction":
         st.markdown(f'<div class="warn-box">Baseline delay rate is {BASELINE_DELAY:.0f}%. This model reaches only ROC-AUC 0.71, so treat this as an indicative signal, not a definitive forecast. The value of this project is in understanding the factors.</div>',unsafe_allow_html=True)
         st.caption("Features derived automatically from your inputs and airport averages:")
         st.dataframe(pd.DataFrame({"Derived feature":["Season","Time of day","Airport traffic (avg)","Typical wind","Typical temp max"],"Value":[season,tod,f"{traffic:.0f}/day",f"{ref['WSF2']:.1f}",f"{ref['TMAX']:.0f}F"]}),hide_index=True,use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Batch model testing (CSV upload)")
+    st.caption("Score many flights at once. Include an optional OUTCOME column (On-time/Delayed) to measure model performance on your own unseen data.")
+    REQUIRED_COLS=["ORIGIN","DEP_HOUR","MONTH","AIRLINE_CODE"]
+    template=pd.DataFrame([
+        {"ORIGIN":"ATL","DEP_HOUR":19,"MONTH":7,"AIRLINE_CODE":"WN","DISTANCE":800,"THUNDER":0,"FOG":0,"PRCP":0.0,"OUTCOME":"Delayed"},
+        {"ORIGIN":"ORD","DEP_HOUR":8,"MONTH":1,"AIRLINE_CODE":"AA","DISTANCE":600,"THUNDER":0,"FOG":1,"PRCP":0.2,"OUTCOME":"On-time"},
+    ])
+    st.download_button("Download template CSV",template.to_csv(index=False).encode("utf-8"),file_name="flight_test_template.csv",mime="text/csv")
+    uploaded=st.file_uploader("Upload a flights CSV",type=["csv"])
+    if uploaded is not None:
+        try:
+            up=pd.read_csv(uploaded)
+        except Exception as e:
+            up=None; st.error(f"Could not read the CSV file - {e}.")
+        if up is not None:
+            missing=[c for c in REQUIRED_COLS if c not in up.columns]
+            if missing:
+                st.error(f"Uploaded CSV is missing required column(s): {', '.join(missing)}. Required columns are ORIGIN, DEP_HOUR, MONTH, AIRLINE_CODE.")
+            else:
+                try:
+                    dist_mean=float(df["DISTANCE"].mean())
+                    feat_rows=[]
+                    for _,r in up.iterrows():
+                        o=str(r["ORIGIN"]); dh=int(r["DEP_HOUR"]); mo=int(r["MONTH"]); al=str(r["AIRLINE_CODE"])
+                        dist=float(r["DISTANCE"]) if ("DISTANCE" in up.columns and pd.notna(r["DISTANCE"])) else dist_mean
+                        th=int(r["THUNDER"]) if ("THUNDER" in up.columns and pd.notna(r["THUNDER"])) else 0
+                        fo=int(r["FOG"]) if ("FOG" in up.columns and pd.notna(r["FOG"])) else 0
+                        pr=float(r["PRCP"]) if ("PRCP" in up.columns and pd.notna(r["PRCP"])) else 0.0
+                        ref_r=airport_ref.loc[o]; se=season_from_month(mo); td=tod_from_hour(dh)
+                        feat_rows.append({"TIME_OF_DAY":encoders["TIME_OF_DAY"].transform([td])[0],"FOG":fo,"SEASON":encoders["SEASON"].transform([se])[0],"IS_WEEKEND":0,"AIRLINE_CODE":encoders["AIRLINE_CODE"].transform([al])[0],"MONTH":mo,"DEP_HOUR":dh,"DAY_OF_WEEK":5,"ORIGIN":encoders["ORIGIN"].transform([o])[0],"WSF2":ref_r["WSF2"],"THUNDER":th,"HAZE_SMOKE":1 if ref_r["HAZE_SMOKE"]>0.5 else 0,"PRCP":pr,"TMAX":ref_r["TMAX"],"TMIN":ref_r["TMIN"],"DISTANCE":dist,"AWND":ref_r["AWND"],"DAILY_TRAFFIC":ref_r["DAILY_TRAFFIC"],"SNOW":ref_r["SNOW"],"SNWD":ref_r["SNWD"]})
+                    X_batch=pd.DataFrame(feat_rows)[MODEL_FEATURES]
+                    probs=model.predict_proba(X_batch)[:,1]*100
+                    results=up.copy(); results["Delay probability (%)"]=probs.round(1)
+                    st.dataframe(results,hide_index=True,use_container_width=True)
+                    st.markdown(f'<div class="insight-box"><b>{len(results)}</b> flights scored · mean predicted delay probability <b>{probs.mean():.1f}%</b></div>',unsafe_allow_html=True)
+                    if "OUTCOME" in up.columns:
+                        mask=up["OUTCOME"].isin(["On-time","Delayed"])
+                        y_true=(up.loc[mask,"OUTCOME"]=="Delayed").astype(int)
+                        y_prob=probs[mask.values]/100
+                        y_pred=(y_prob>=0.5).astype(int)
+                        if len(y_true)>0:
+                            acc=accuracy_score(y_true,y_pred)*100
+                            st.markdown("**Model performance on your uploaded data**")
+                            if y_true.nunique()>1:
+                                auc=roc_auc_score(y_true,y_prob)
+                                st.markdown(f'<div class="metric-card">Accuracy @ 0.5 threshold: <b>{acc:.1f}%</b> · ROC-AUC: <b>{auc:.3f}</b> · on {len(y_true)} labelled flights</div>',unsafe_allow_html=True)
+                            else:
+                                st.markdown(f'<div class="metric-card">Accuracy @ 0.5 threshold: <b>{acc:.1f}%</b> · ROC-AUC unavailable (only one class present) · on {len(y_true)} labelled flights</div>',unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Could not process the CSV - {e}. Check that ORIGIN and AIRLINE_CODE values appear in the training data and that numeric columns contain valid values.")
 
 elif page == "Factors":
     st.title("What drives each disruption type")
